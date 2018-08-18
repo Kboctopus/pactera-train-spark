@@ -10,7 +10,7 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.sql._
 import org.apache.spark.sql.hive.HiveContext
 import org.apache.spark.{SparkConf, SparkContext}
-
+import com.google.gson.{JsonParser}
 /**
   * Author: xinghua
   * param: 离线统计结果统计分析
@@ -37,13 +37,13 @@ object UserCount {
     * 获取hdfs数据
     */
   def getHdfsData(): Unit = {
-
+    val json=new JsonParser()
     //  将hdfs文件转换为RDD
     val textRDD: RDD[String] = sc.textFile(UserPropertis.getKeyValue("fileSrc"))
     //定义一个schemaString字符串，用于头信息
     val schemaString = "uid pageid actionid ext"
     //将rdd转换为row对象
-    val userRow = textRDD.map(_.split(",")).map(x => Row(x(0), x(1), x(2), x(3)))
+    val userRow = textRDD.map(_.split(",")).map(x => Row(x(0), x(1), x(2),JsonToStringUtils.JsontoString(x(3))))
     //将schemaString转换为schema信息
     import org.apache.spark.sql.types.{StringType, StructField, StructType}
     val scheme = StructType(schemaString.split(" ").map(fileName => StructField(fileName, StringType)))
@@ -51,6 +51,7 @@ object UserCount {
     val df = sqlContext.createDataFrame(userRow, scheme)
     //创建虚拟表
     df.registerTempTable("user")
+    df.show()
   }
 
   /**
@@ -90,7 +91,7 @@ object UserCount {
     //将hbase数据查询后，注册为临时表
     hbaseTable.registerTempTable("user_status_table")
     //测试查看表数据信息，show默认显示10条
-    //    sqlContext.sql("select * from user_status_table").show()
+        sqlContext.sql("select * from user_status_table").show()
   }
 
   /**
@@ -100,7 +101,7 @@ object UserCount {
     **/
   def dataToHive() = {
     sqlContext.sql("select ust.date date,ust.country country,ust.province province," +
-      "u.uid user_id,u.pageid pageid,u.actionid  actionid from user u  " +
+      "u.uid user_id,u.pageid pageid,u.actionid  actionid  from user u  " +
       "join user_status_table ust on u.uid=ust.rowkey" ).registerTempTable("user_count")
   }
 
@@ -111,9 +112,10 @@ object UserCount {
     **/
   def dataToMysql(): Unit = {
       sqlContext.sql("select date,country,province," +
-        "Row_Number() OVER (PARTITION BY date,province,user_id order by date DESC ) AS user_count," +
+        "SUM(1) OVER(PARTITION BY province) AS count," +  //根据地区分组统计总行数
+        "Row_Number() OVER (PARTITION BY date,province order by date DESC) AS user_count," + //根据时间地区统计用户数量
         "pageid,actionid " +
-        "from user_count").write.format("jdbc").mode(SaveMode.Append).
+        "from user_count ").write.format("jdbc").mode(SaveMode.Append).
         jdbc(UserPropertis.getKeyValue("mysqlJdbc"),UserPropertis.getKeyValue("mysqlTable"),new Properties())
   }
 }

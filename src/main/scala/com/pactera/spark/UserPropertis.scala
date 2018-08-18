@@ -2,6 +2,8 @@ package com.pactera.spark
 
 import java.io.FileInputStream
 import java.util.Properties
+
+import com.pactera.test.Test
 /**
   * Author: xinghua
   * param: method
